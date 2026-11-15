@@ -1,7 +1,7 @@
 # Enterprise App
 
 
-#1. Project_VRE – E-Commerce Platform
+# 1. Project_VRE – E-Commerce Platform
 
 **Project_VRE** is a web-based E-Commerce application designed to manage online shopping operations, including product management, categories, inventory, customer management, shopping cart, orders, payments, and order tracking.
 
@@ -18,7 +18,7 @@ The application aims to provide a scalable, secure, and user-friendly platform w
 
 **Technology Stack:** .NET 10, ASP.NET Core Web API, Angular, SQL Server, Entity Framework Core.
 
-#2. Project_HRMS – Human Resource Management System
+# 2. Project_HRMS – Human Resource Management System
 
 **Project_HRMS** is a web-based Human Resource Management System designed to simplify and automate employee-related business operations, including employee records, department management, designation management, family details, attendance, leave, and payroll management.
 
