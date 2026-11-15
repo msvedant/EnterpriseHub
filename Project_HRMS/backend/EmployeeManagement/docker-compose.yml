@@ -1,0 +1,43 @@
+# Development stack: SQL Server + API.  Usage:  docker compose up --build
+# Override the defaults below with a .env file (see README). The defaults are for local development only.
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ems-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:-Ems_Dev#2025x}"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/EmployeeManagement.API/Dockerfile
+    container_name: ems-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=EmployeeManagementDb;User Id=sa;Password=${SA_PASSWORD:-Ems_Dev#2025x};TrustServerCertificate=True"
+      Jwt__Key: "${JWT_KEY:-dev-only-compose-signing-key-0123456789-abcdef}"
+      Seed__AdminEmail: "${ADMIN_EMAIL:-admin@ems.local}"
+      Seed__AdminPassword: "${ADMIN_PASSWORD:-Admin@12345}"
+      Database__ApplyMigrationsOnStartup: "true"
+      Security__UseHttpsRedirection: "false"
+      Swagger__Enabled: "true"
+    restart: unless-stopped
+
+volumes:
+  sqldata:

@@ -1,0 +1,192 @@
+==============================================================
+ EMPLOYEE MANAGEMENT API - RUN LOCALLY (STEP BY STEP)
+==============================================================
+
+NOTE: This solution was generated without a .NET SDK, so it has not
+been compiled. If "dotnet build" shows errors, send them to Claude
+to get them fixed.
+
+--------------------------------------------------------------
+STEP 1. INSTALL THE TOOLS (ONE TIME)
+--------------------------------------------------------------
+ a) .NET 10 SDK
+      Check:  dotnet --version        (should print 10.x)
+ b) Docker Desktop (runs SQL Server for you)
+      Without Docker, see "NO DOCKER?" at the end.
+ c) EF Core CLI
+      dotnet tool install --global dotnet-ef
+
+--------------------------------------------------------------
+STEP 2. UNZIP AND OPEN A TERMINAL
+--------------------------------------------------------------
+ Unzip EmployeeManagement.zip, then cd into the EmployeeManagement
+ folder (the one that contains EmployeeManagement.sln).
+
+--------------------------------------------------------------
+STEP 3. START SQL SERVER
+--------------------------------------------------------------
+      docker compose up -d sqlserver
+      docker ps
+
+ Wait until ems-sqlserver shows "healthy" (about 30 seconds).
+ The dev connection string in appsettings.Development.json already
+ points to it:
+      Server=localhost,1433  User=sa  Password=Ems_Dev#2025x
+
+--------------------------------------------------------------
+STEP 4. BUILD
+--------------------------------------------------------------
+      dotnet restore
+      dotnet build
+
+--------------------------------------------------------------
+STEP 5. RUN THE TESTS
+--------------------------------------------------------------
+      dotnet test
+
+ The tests use an in-memory database; SQL Server is not needed.
+
+--------------------------------------------------------------
+STEP 6. CREATE THE INITIAL MIGRATION (ONCE)
+--------------------------------------------------------------
+ Run as ONE line (PowerShell / CMD / bash):
+
+ dotnet ef migrations add InitialCreate --project src/EmployeeManagement.Infrastructure --startup-project src/EmployeeManagement.API --output-dir Persistence/Migrations
+
+ This creates:
+   src/EmployeeManagement.Infrastructure/Persistence/Migrations/
+ Commit that folder to source control.
+ (The .sh scripts in the database/ folder are for Git Bash / Linux.)
+
+--------------------------------------------------------------
+STEP 7. RUN THE API
+--------------------------------------------------------------
+      dotnet run --project src/EmployeeManagement.API
+
+ On first start (Development) it will:
+   - apply the migration and create the tables
+   - seed master data (departments, designations, employee types,
+     relationships, countries, states, cities)
+   - create the admin user
+ Look for:  Now listening on: http://localhost:5080
+
+--------------------------------------------------------------
+STEP 8. TRY IT IN SWAGGER
+--------------------------------------------------------------
+ Open:  http://localhost:5080/swagger
+
+ 8.1 LOGIN - POST /api/auth/login
+      {
+        "email": "admin@ems.local",
+        "password": "Admin@12345"
+      }
+
+ 8.2 AUTHORIZE
+      Copy data.accessToken from the response, click "Authorize"
+      (top right), paste ONLY the token, confirm.
+
+ 8.3 LOOK UP MASTER IDS (note one id from each)
+      GET /api/masters/departments
+      GET /api/masters/designations
+      GET /api/masters/employee-types
+      GET /api/masters/relationships
+      GET /api/masters/countries
+      GET /api/masters/states?parentId=<countryId>
+      GET /api/masters/cities?parentId=<stateId>
+
+ 8.4 CREATE AN EMPLOYEE - POST /api/employees
+     (replace the ids with the ones you noted)
+      {
+        "employeeCode": "EMP001",
+        "firstName": "Asha",
+        "lastName": "Patil",
+        "dateOfBirth": "1992-03-14",
+        "gender": "Female",
+        "email": "asha@example.com",
+        "mobile": "+919800000001",
+        "joiningDate": "2023-04-03",
+        "departmentId": 1,
+        "designationId": 1,
+        "employeeTypeId": 1,
+        "families": [
+          { "relationshipId": 1, "fullName": "Ravi Patil",
+            "isEmergencyContact": true }
+        ],
+        "addresses": [
+          { "addressType": "Permanent", "line1": "21 Lake View",
+            "countryId": 1, "stateId": 1, "cityId": 1,
+            "postalCode": "411045", "isPrimary": true }
+        ],
+        "educations": [
+          { "degree": "MCA", "institution": "Pune University",
+            "yearOfPassing": 2015 }
+        ],
+        "experiences": [
+          { "companyName": "Initech", "jobTitle": "Analyst",
+            "startDate": "2015-08-01", "endDate": "2023-03-01" }
+        ]
+      }
+
+ 8.5 GET / UPDATE / LIST / DEACTIVATE / DELETE
+      GET    /api/employees/{id}
+             Employee with all details.
+      PUT    /api/employees/{id}
+             Send the full body plus the "rowVersion" from the GET.
+             Detail rows: include "id" to update, omit "id" to add,
+             leave a row out of the list to remove it.
+      GET    /api/employees?search=asha&sortBy=firstName&sortDirection=desc&page=1&pageSize=10
+             Paged, sorted, filtered list.
+      PATCH  /api/employees/{id}/status      body: { "isActive": false }
+      DELETE /api/employees/{id}             (soft delete, Admin only)
+
+ Health check:  GET http://localhost:5080/health
+
+--------------------------------------------------------------
+STEP 9. OPTIONAL - RUN EVERYTHING IN DOCKER
+--------------------------------------------------------------
+ Stop "dotnet run" with Ctrl+C, then:
+
+      docker compose up --build
+
+ API:  http://localhost:8080/swagger   (same admin login)
+
+--------------------------------------------------------------
+TROUBLESHOOTING
+--------------------------------------------------------------
+ Port 1433 already in use
+   Stop any local SQL Server, or change the port mapping in
+   docker-compose.yml.
+
+ "Cannot open server" / login failed
+   The container is not healthy yet. Run: docker logs ems-sqlserver
+
+ 401 on every call
+   You did not click Authorize, or the token expired (60 minutes).
+   Log in again.
+
+ 409 on update
+   The rowVersion is stale. GET the employee first and send the
+   latest rowVersion.
+
+ Reset the database
+      docker compose down -v
+   then repeat Steps 3 to 7.
+
+--------------------------------------------------------------
+NO DOCKER?
+--------------------------------------------------------------
+ Use SQL Server LocalDB or Express instead.
+ 1) Change DefaultConnection in
+    src/EmployeeManagement.API/appsettings.Development.json, e.g.:
+      Server=(localdb)\\MSSQLLocalDB;Database=EmployeeManagementDb;Trusted_Connection=True;TrustServerCertificate=True
+ 2) Set the same string in the EMS_CONNECTION environment variable
+    before running Step 6.
+      PowerShell:  $env:EMS_CONNECTION="<connection string>"
+      bash:        export EMS_CONNECTION="<connection string>"
+
+--------------------------------------------------------------
+DEV-ONLY CREDENTIALS (never use outside local development)
+--------------------------------------------------------------
+ Admin login : admin@ems.local / Admin@12345
+ SQL SA      : Ems_Dev#2025x
+==============================================================

@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.log
+logs/
+TestResults/
+coverage/
+*.DotSettings.user
+.env
+publish/
+artifacts/
+appsettings.Local.json
+secrets.json

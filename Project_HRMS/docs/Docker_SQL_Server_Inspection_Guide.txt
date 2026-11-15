@@ -1,0 +1,401 @@
+DOCKER SQL SERVER - COMPLETE STEP-BY-STEP NOTES
+
+Purpose
+
+Use these steps to check a SQL Server Docker container on Windows,
+connect to it, and inspect database status, schemas, tables, columns,
+and records.
+
+IMPORTANT
+
+-   localhost:1433 is a SQL Server TCP endpoint, not a website.
+-   Do not open http://localhost:1433/ in a browser.
+-   Use SQL Server Management Studio (SSMS), sqlcmd, or an application
+    connection string to connect.
+-   Replace , , and with your actual values.
+-   Never share your SQL Server password or commit it to source control.
+
+STEP 1 - FIND YOUR SQL SERVER CONTAINER
+
+Open PowerShell or Windows Terminal.
+
+Show running containers:
+
+    docker ps
+
+Show all containers, including stopped containers:
+
+    docker ps -a
+
+Find the SQL Server container in the NAMES column. Note its name and
+status.
+
+If you do not know which container is SQL Server, inspect likely
+container names and images. SQL Server images commonly contain
+“mssql/server”.
+
+STEP 2 - CHECK CONTAINER STATUS AND PORT MAPPING
+
+Check a specific container:
+
+    docker inspect -f "{{.State.Status}}" <container_name>
+
+Expected status when running:
+
+    running
+
+Check the published ports:
+
+    docker port <container_name>
+
+A typical result is:
+
+    1433/tcp -> 0.0.0.0:1433
+
+This means host port 1433 forwards to port 1433 inside the container.
+
+If docker port shows a different host port, use that host port in SSMS
+and your connection string. For example, if it shows 1435 -> 1433,
+connect to localhost,1435.
+
+STEP 3 - CHECK SQL SERVER LOGS
+
+Run:
+
+    docker logs --tail 100 <container_name>
+
+To follow new log messages:
+
+    docker logs -f <container_name>
+
+Look for a message similar to:
+
+    SQL Server is now ready for client connections.
+
+This is a useful readiness indication. Logs alone do not prove that a
+particular database is online; check database state in Step 6.
+
+Stop following logs with Ctrl+C. This does not stop the container.
+
+STEP 4 - CHECK WHETHER WINDOWS CAN REACH THE SQL PORT
+
+In PowerShell, run:
+
+    Test-NetConnection localhost -Port 1433
+
+Look for:
+
+    TcpTestSucceeded : True
+
+If it is False: 1. Confirm the container is running: docker ps. 2.
+Confirm the port mapping: docker port . 3. Use the mapped host port, not
+necessarily 1433. 4. Check Docker logs for startup or configuration
+errors. 5. Check that another process is not occupying the host port.
+
+STEP 5 - CONNECT USING SQL SERVER MANAGEMENT STUDIO (SSMS)
+
+1.  Install and open SQL Server Management Studio (SSMS), if needed.
+
+2.  In the Connect to Server window, enter:
+
+    Server type: Database Engine Server name: localhost,1433
+    Authentication: SQL Server Authentication Login: sa Password: The SA
+    password configured for the container
+
+3.  If you mapped a different host port, replace 1433 with that port.
+
+4.  If the connection uses a development/self-signed certificate, enable
+    “Trust server certificate” in the connection options if appropriate.
+
+5.  Select Connect.
+
+Security note: Trust Server Certificate is a development convenience.
+For production, configure and validate certificates properly. Do not
+expose SQL Server port 1433 publicly or use the SA account for
+application access.
+
+STEP 6 - CHECK SQL SERVER AND DATABASE STATUS
+
+In SSMS, click New Query and run:
+
+    SELECT
+        @@SERVERNAME AS ServerName,
+        @@VERSION AS SqlServerVersion,
+        GETDATE() AS ServerDateTime;
+
+List databases and their states:
+
+    SELECT
+        name AS DatabaseName,
+        state_desc AS DatabaseState,
+        create_date AS CreatedDate
+    FROM sys.databases
+    ORDER BY name;
+
+A normal available database usually has state ONLINE.
+
+Check the current database:
+
+    SELECT DB_NAME() AS CurrentDatabase;
+
+To work with a particular database:
+
+    USE [<database_name>];
+    GO
+
+Replace with the real database name. Keep the square brackets,
+especially if the name contains spaces or special characters.
+
+STEP 7 - LIST DATABASE SCHEMAS
+
+First select the database you want to inspect:
+
+    USE [<database_name>];
+    GO
+
+Then list schemas:
+
+    SELECT
+        name AS SchemaName
+    FROM sys.schemas
+    ORDER BY name;
+
+Common schema names include dbo, sales, hr, and inventory.
+
+STEP 8 - LIST ALL TABLES
+
+Run this after selecting the required database:
+
+    SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_TYPE = 'BASE TABLE'
+    ORDER BY TABLE_SCHEMA, TABLE_NAME;
+
+To list views instead:
+
+    SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME
+    FROM INFORMATION_SCHEMA.VIEWS
+    ORDER BY TABLE_SCHEMA, TABLE_NAME;
+
+STEP 9 - CHECK TABLE ROW COUNTS
+
+This query returns approximate/current partition row counts maintained
+by SQL Server metadata for each user table:
+
+    SELECT
+        s.name AS SchemaName,
+        t.name AS TableName,
+        SUM(p.rows) AS TotalRows
+    FROM sys.tables AS t
+    INNER JOIN sys.schemas AS s
+        ON t.schema_id = s.schema_id
+    INNER JOIN sys.partitions AS p
+        ON t.object_id = p.object_id
+    WHERE p.index_id IN (0, 1)
+    GROUP BY s.name, t.name
+    ORDER BY s.name, t.name;
+
+For an exact count in one table, run:
+
+    SELECT COUNT_BIG(*) AS TotalRows
+    FROM [dbo].[YourTableName];
+
+Replace dbo and YourTableName with the actual schema and table. Exact
+COUNT_BIG can take time on large tables.
+
+STEP 10 - CHECK TABLE COLUMNS AND DATA TYPES
+
+Option A - SQL query:
+
+    SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        COLUMN_NAME,
+        DATA_TYPE,
+        CHARACTER_MAXIMUM_LENGTH,
+        IS_NULLABLE
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'YourTableName'
+    ORDER BY ORDINAL_POSITION;
+
+Option B - SQL Server built-in procedure:
+
+    EXEC sp_help 'dbo.YourTableName';
+
+Replace the sample table name with the actual table.
+
+STEP 11 - VIEW SAMPLE RECORDS
+
+Use a small result set first:
+
+    SELECT TOP (20) *
+    FROM [dbo].[YourTableName];
+
+Avoid SELECT * on very large tables or sensitive production data. Select
+only the columns you need, and do not share personal or confidential
+records.
+
+STEP 12 - CONNECT USING sqlcmd (OPTIONAL)
+
+Some SQL Server container images include sqlcmd; others do not.
+
+Try this common path:
+
+    docker exec -it <container_name> /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C
+
+If that path does not exist, try:
+
+    docker exec -it <container_name> /opt/mssql-tools/bin/sqlcmd -S localhost -U sa
+
+The tool may prompt for the password. If the command does not exist, use
+SSMS or install SQL command-line tools; do not assume sqlcmd is
+installed.
+
+At the sqlcmd prompt, run:
+
+    SELECT name, state_desc FROM sys.databases;
+    GO
+
+To exit sqlcmd:
+
+    EXIT
+
+The -C option tells sqlcmd to trust the server certificate. Use it only
+when appropriate for your development environment. Prefer proper
+certificate validation in production.
+
+STEP 13 - COMMON DOCKER COMMANDS
+
+Show running containers:
+
+    docker ps
+
+Show all containers:
+
+    docker ps -a
+
+Show recent SQL Server logs:
+
+    docker logs --tail 100 <container_name>
+
+Follow logs:
+
+    docker logs -f <container_name>
+
+Start a stopped container:
+
+    docker start <container_name>
+
+Stop a container:
+
+    docker stop <container_name>
+
+Restart a container:
+
+    docker restart <container_name>
+
+Show port mapping:
+
+    docker port <container_name>
+
+Inspect container configuration:
+
+    docker inspect <container_name>
+
+IMPORTANT: Do not use docker rm, docker compose down -v, or delete
+Docker volumes as a troubleshooting shortcut. These actions can remove
+the database container or persistent database data. Back up important
+data before making changes.
+
+STEP 14 - UNDERSTAND DATA PERSISTENCE
+
+SQL Server container data should normally be stored in a Docker volume
+or a host-mounted directory mapped to SQL Server’s data directory,
+commonly:
+
+    /var/opt/mssql
+
+Inspect mounts:
+
+    docker inspect -f "{{json .Mounts}}" <container_name>
+
+Confirm that the database files are stored in persistent storage. If
+data exists only in the container’s writable layer, removing the
+container can cause data loss.
+
+Do not delete or recreate volumes unless you understand exactly what
+data they contain and have a verified backup.
+
+STEP 15 - SAMPLE CONNECTION STRING FOR A .NET APPLICATION
+
+Example for local development:
+
+    Server=localhost,1433;Database=<database_name>;User Id=sa;Password=<your_password>;Encrypt=True;TrustServerCertificate=True;
+
+Replace the placeholders. If your Docker host port differs, update 1433.
+
+Best practices: - Store credentials in .NET User Secrets or environment
+variables for local development; use a managed secret store in deployed
+environments. - Do not hard-code passwords in source code or commit
+appsettings files containing real secrets. - Do not use the sa account
+for a normal application. Create a dedicated login/user with only the
+permissions the application requires. - TrustServerCertificate=True is
+for suitable local development scenarios; use valid TLS certificates and
+normal certificate validation in production.
+
+TROUBLESHOOTING
+
+1.  “Login failed for user ‘sa’”
+    -   Confirm the password used when the container was initialized.
+    -   Check logs for authentication or startup errors.
+    -   Do not assume changing an environment variable on an existing
+        container automatically changes the existing SA password.
+2.  “Connection refused” or timeout
+    -   Confirm the container is running.
+    -   Check docker port .
+    -   Run Test-NetConnection localhost -Port .
+    -   Review the SQL Server logs.
+3.  Container keeps restarting or exits
+    -   Run docker ps -a.
+    -   Run docker logs –tail 200 .
+    -   Check the SQL Server image requirements and container
+        configuration.
+4.  Database is not ONLINE
+    -   Review the database state and SQL Server error logs.
+    -   Do not detach, delete, or recreate database files as a first
+        response.
+    -   Take a backup and investigate the reported SQL Server error.
+5.  Browser does not open localhost:1433
+    -   This is expected. Port 1433 speaks the SQL Server protocol, not
+        HTTP.
+    -   Connect using SSMS, sqlcmd, or a database driver.
+
+QUICK CHECKLIST
+
+[ ] Container appears in docker ps. [ ] Container status is running. [ ]
+docker port shows the expected host-to-container port mapping. [ ] SQL
+Server logs say it is ready for client connections. [ ]
+Test-NetConnection to the mapped host port succeeds. [ ] SSMS connects
+with the correct credentials. [ ] sys.databases shows the expected
+database as ONLINE. [ ] The selected database contains the expected
+schemas and tables. [ ] Important data is stored in a persistent volume
+or host directory. [ ] A verified backup exists before risky changes.
+
+USEFUL COMMANDS TO RUN FIRST
+
+Run these commands and note the actual container name:
+
+    docker ps -a
+    docker port <container_name>
+    docker logs --tail 100 <container_name>
+    Test-NetConnection localhost -Port 1433
+
+Then connect in SSMS to:
+
+    localhost,1433
+
+END OF NOTES
